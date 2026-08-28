@@ -3,6 +3,9 @@ package auth
 import (
 	"strings"
 	"testing"
+	"time"
+
+	"github.com/google/uuid"
 )
 
 func TestHashPassword(t *testing.T) {
@@ -84,5 +87,117 @@ func TestCheckPasswordHashMalformedHash(t *testing.T) {
 	}
 	if match {
 		t.Error("CheckPasswordHash() matched against a malformed hash")
+	}
+}
+
+func TestMakeJWTAndValidateJWT(t *testing.T) {
+	userID := uuid.New()
+	secret := "my-very-secret-key"
+
+	token, err := MakeJWT(userID, secret, time.Hour)
+	if err != nil {
+		t.Fatalf("MakeJWT() returned an error: %v", err)
+	}
+	if token == "" {
+		t.Fatal("MakeJWT() returned an empty token")
+	}
+
+	gotID, err := ValidateJWT(token, secret)
+	if err != nil {
+		t.Fatalf("ValidateJWT() returned an error: %v", err)
+	}
+	if gotID != userID {
+		t.Errorf("ValidateJWT() = %v, want %v", gotID, userID)
+	}
+}
+
+func TestValidateJWTExpiredToken(t *testing.T) {
+	userID := uuid.New()
+	secret := "my-very-secret-key"
+
+	// A negative duration puts ExpiresAt in the past, so the token is born expired.
+	token, err := MakeJWT(userID, secret, -time.Hour)
+	if err != nil {
+		t.Fatalf("MakeJWT() returned an error: %v", err)
+	}
+
+	gotID, err := ValidateJWT(token, secret)
+	if err == nil {
+		t.Error("ValidateJWT() accepted an expired token, want an error")
+	}
+	if gotID != uuid.Nil {
+		t.Errorf("ValidateJWT() = %v, want uuid.Nil on failure", gotID)
+	}
+}
+
+func TestValidateJWTWrongSecret(t *testing.T) {
+	userID := uuid.New()
+
+	token, err := MakeJWT(userID, "secret-one", time.Hour)
+	if err != nil {
+		t.Fatalf("MakeJWT() returned an error: %v", err)
+	}
+
+	gotID, err := ValidateJWT(token, "secret-two")
+	if err == nil {
+		t.Error("ValidateJWT() accepted a token signed with a different secret, want an error")
+	}
+	if gotID != uuid.Nil {
+		t.Errorf("ValidateJWT() = %v, want uuid.Nil on failure", gotID)
+	}
+}
+
+func TestValidateJWTMalformedToken(t *testing.T) {
+	cases := []struct {
+		name  string
+		token string
+	}{
+		{"not a jwt", "not.a.jwt"},
+		{"empty string", ""},
+		{"bearer prefix left on", "Bearer abc.def.ghi"},
+	}
+
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			gotID, err := ValidateJWT(c.token, "my-very-secret-key")
+			if err == nil {
+				t.Errorf("ValidateJWT(%q) returned no error, want one", c.token)
+			}
+			if gotID != uuid.Nil {
+				t.Errorf("ValidateJWT() = %v, want uuid.Nil on failure", gotID)
+			}
+		})
+	}
+}
+
+func TestMakeJWTDistinctUsers(t *testing.T) {
+	secret := "my-very-secret-key"
+	userA := uuid.New()
+	userB := uuid.New()
+
+	tokenA, err := MakeJWT(userA, secret, time.Hour)
+	if err != nil {
+		t.Fatalf("MakeJWT() returned an error: %v", err)
+	}
+	tokenB, err := MakeJWT(userB, secret, time.Hour)
+	if err != nil {
+		t.Fatalf("MakeJWT() returned an error: %v", err)
+	}
+
+	if tokenA == tokenB {
+		t.Fatal("MakeJWT() produced identical tokens for different users")
+	}
+
+	gotA, err := ValidateJWT(tokenA, secret)
+	if err != nil {
+		t.Fatalf("ValidateJWT() returned an error: %v", err)
+	}
+	gotB, err := ValidateJWT(tokenB, secret)
+	if err != nil {
+		t.Fatalf("ValidateJWT() returned an error: %v", err)
+	}
+
+	if gotA != userA || gotB != userB {
+		t.Errorf("tokens resolved to the wrong users: got %v and %v, want %v and %v", gotA, gotB, userA, userB)
 	}
 }
