@@ -1,6 +1,7 @@
 package auth
 
 import (
+	"net/http"
 	"strings"
 	"testing"
 	"time"
@@ -199,5 +200,82 @@ func TestMakeJWTDistinctUsers(t *testing.T) {
 
 	if gotA != userA || gotB != userB {
 		t.Errorf("tokens resolved to the wrong users: got %v and %v, want %v and %v", gotA, gotB, userA, userB)
+	}
+}
+
+func TestGetBearerToken(t *testing.T) {
+	cases := []struct {
+		name      string
+		headerSet bool
+		header    string
+		want      string
+		wantErr   bool
+	}{
+		{name: "well formed", headerSet: true, header: "Bearer abc123", want: "abc123"},
+		{name: "extra internal whitespace", headerSet: true, header: "Bearer     abc123", want: "abc123"},
+		{name: "surrounding whitespace", headerSet: true, header: "  Bearer abc123  ", want: "abc123"},
+		{name: "lowercase scheme", headerSet: true, header: "bearer abc123", want: "abc123"},
+		{name: "no header at all", headerSet: false, wantErr: true},
+		{name: "empty header", headerSet: true, header: "", wantErr: true},
+		{name: "scheme with no token", headerSet: true, header: "Bearer", wantErr: true},
+		{name: "token with no scheme", headerSet: true, header: "abc123", wantErr: true},
+		{name: "wrong scheme", headerSet: true, header: "Basic abc123", wantErr: true},
+	}
+
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			headers := http.Header{}
+			if c.headerSet {
+				headers.Set("Authorization", c.header)
+			}
+
+			got, err := GetBearerToken(headers)
+			if c.wantErr {
+				if err == nil {
+					t.Errorf("GetBearerToken() returned no error, want one")
+				}
+				if got != "" {
+					t.Errorf("GetBearerToken() = %q, want empty string on failure", got)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("GetBearerToken() returned an error: %v", err)
+			}
+			if got != c.want {
+				t.Errorf("GetBearerToken() = %q, want %q", got, c.want)
+			}
+		})
+	}
+}
+
+// The path a real request takes: mint a token, ship it in a header, pull it back
+// out and validate it.
+func TestGetBearerTokenRoundTrip(t *testing.T) {
+	userID := uuid.New()
+	secret := "my-very-secret-key"
+
+	token, err := MakeJWT(userID, secret, time.Hour)
+	if err != nil {
+		t.Fatalf("MakeJWT() returned an error: %v", err)
+	}
+
+	headers := http.Header{}
+	headers.Set("Authorization", "Bearer "+token)
+
+	extracted, err := GetBearerToken(headers)
+	if err != nil {
+		t.Fatalf("GetBearerToken() returned an error: %v", err)
+	}
+	if extracted != token {
+		t.Errorf("GetBearerToken() = %q, want the token that was set", extracted)
+	}
+
+	gotID, err := ValidateJWT(extracted, secret)
+	if err != nil {
+		t.Fatalf("ValidateJWT() returned an error: %v", err)
+	}
+	if gotID != userID {
+		t.Errorf("ValidateJWT() = %v, want %v", gotID, userID)
 	}
 }
