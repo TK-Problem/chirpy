@@ -1,6 +1,7 @@
 package auth
 
 import (
+	"encoding/hex"
 	"net/http"
 	"strings"
 	"testing"
@@ -277,5 +278,39 @@ func TestGetBearerTokenRoundTrip(t *testing.T) {
 	}
 	if gotID != userID {
 		t.Errorf("ValidateJWT() = %v, want %v", gotID, userID)
+	}
+}
+
+func TestMakeRefreshToken(t *testing.T) {
+	token, err := MakeRefreshToken()
+	if err != nil {
+		t.Fatalf("MakeRefreshToken() returned an error: %v", err)
+	}
+
+	// 32 random bytes hex-encode to 64 characters.
+	if len(token) != 64 {
+		t.Errorf("len(MakeRefreshToken()) = %d, want %d", len(token), 64)
+	}
+
+	decoded, err := hex.DecodeString(token)
+	if err != nil {
+		t.Fatalf("MakeRefreshToken() is not valid hex: %v", err)
+	}
+	if len(decoded) != 32 {
+		t.Errorf("decoded length = %d bytes, want %d", len(decoded), 32)
+	}
+}
+
+func TestMakeRefreshTokenIsRandom(t *testing.T) {
+	seen := map[string]bool{}
+	for i := 0; i < 100; i++ {
+		token, err := MakeRefreshToken()
+		if err != nil {
+			t.Fatalf("MakeRefreshToken() returned an error: %v", err)
+		}
+		if seen[token] {
+			t.Fatalf("MakeRefreshToken() returned a duplicate token on call %d", i+1)
+		}
+		seen[token] = true
 	}
 }

@@ -1,6 +1,8 @@
 package auth
 
 import (
+	"crypto/rand"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"net/http"
@@ -59,6 +61,16 @@ func ValidateJWT(tokenString, tokenSecret string) (uuid.UUID, error) {
 		return uuid.Nil, fmt.Errorf("invalid user ID in token subject: %w", err)
 	}
 	return userID, nil
+}
+
+// MakeRefreshToken returns a hex-encoded 256-bit random string. Unlike an access
+// token it carries no claims — it is only a lookup key into the refresh_tokens table.
+func MakeRefreshToken() (string, error) {
+	key := make([]byte, 32)
+	if _, err := rand.Read(key); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(key), nil
 }
 
 func GetBearerToken(headers http.Header) (string, error) {
