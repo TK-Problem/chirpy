@@ -6,6 +6,8 @@ import (
 	"errors"
 	"net/http"
 
+	"chirpy/internal/auth"
+
 	"github.com/google/uuid"
 )
 
@@ -17,9 +19,21 @@ func (cfg *apiConfig) handlerPolkaWebhook(w http.ResponseWriter, r *http.Request
 		} `json:"data"`
 	}
 
+	// Authenticate before reading the body, so an unauthorized caller can neither
+	// reach the database nor probe which user IDs exist.
+	apiKey, err := auth.GetAPIKey(r.Header)
+	if err != nil {
+		respondWithError(w, http.StatusUnauthorized, "Couldn't find API key", err)
+		return
+	}
+	if apiKey != cfg.polkaKey {
+		respondWithError(w, http.StatusUnauthorized, "Invalid API key", nil)
+		return
+	}
+
 	decoder := json.NewDecoder(r.Body)
 	params := parameters{}
-	err := decoder.Decode(&params)
+	err = decoder.Decode(&params)
 	if err != nil {
 		// Polka retries every non-2XX response, and a payload we can't parse will
 		// never parse on a retry either — 4XX ends the loop, 5XX would feed it.

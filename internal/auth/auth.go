@@ -73,15 +73,26 @@ func MakeRefreshToken() (string, error) {
 	return hex.EncodeToString(key), nil
 }
 
-func GetBearerToken(headers http.Header) (string, error) {
+// getAuthHeaderToken pulls the credential out of an "Authorization: <scheme> <token>"
+// header. Fields splits on any run of whitespace, so padding around the scheme and
+// the token is discarded.
+func getAuthHeaderToken(headers http.Header, scheme string) (string, error) {
 	authHeader := headers.Get("Authorization")
 	if authHeader == "" {
 		return "", errors.New("no authorization header included")
 	}
 
 	fields := strings.Fields(authHeader)
-	if len(fields) < 2 || !strings.EqualFold(fields[0], "Bearer") {
+	if len(fields) < 2 || !strings.EqualFold(fields[0], scheme) {
 		return "", errors.New("malformed authorization header")
 	}
 	return fields[1], nil
+}
+
+func GetBearerToken(headers http.Header) (string, error) {
+	return getAuthHeaderToken(headers, "Bearer")
+}
+
+func GetAPIKey(headers http.Header) (string, error) {
+	return getAuthHeaderToken(headers, "ApiKey")
 }

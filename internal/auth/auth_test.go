@@ -314,3 +314,65 @@ func TestMakeRefreshTokenIsRandom(t *testing.T) {
 		seen[token] = true
 	}
 }
+
+func TestGetAPIKey(t *testing.T) {
+	cases := []struct {
+		name      string
+		headerSet bool
+		header    string
+		want      string
+		wantErr   bool
+	}{
+		{name: "well formed", headerSet: true, header: "ApiKey abc123", want: "abc123"},
+		{name: "extra internal whitespace", headerSet: true, header: "ApiKey     abc123", want: "abc123"},
+		{name: "surrounding whitespace", headerSet: true, header: "  ApiKey abc123  ", want: "abc123"},
+		{name: "lowercase scheme", headerSet: true, header: "apikey abc123", want: "abc123"},
+		{name: "no header at all", headerSet: false, wantErr: true},
+		{name: "empty header", headerSet: true, header: "", wantErr: true},
+		{name: "scheme with no key", headerSet: true, header: "ApiKey", wantErr: true},
+		{name: "key with no scheme", headerSet: true, header: "abc123", wantErr: true},
+		// A JWT must not pass as an API key just because it is in the same header.
+		{name: "bearer scheme", headerSet: true, header: "Bearer abc123", wantErr: true},
+	}
+
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			headers := http.Header{}
+			if c.headerSet {
+				headers.Set("Authorization", c.header)
+			}
+
+			got, err := GetAPIKey(headers)
+			if c.wantErr {
+				if err == nil {
+					t.Errorf("GetAPIKey() returned no error, want one")
+				}
+				if got != "" {
+					t.Errorf("GetAPIKey() = %q, want empty string on failure", got)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("GetAPIKey() returned an error: %v", err)
+			}
+			if got != c.want {
+				t.Errorf("GetAPIKey() = %q, want %q", got, c.want)
+			}
+		})
+	}
+}
+
+// The two schemes must not be interchangeable in either direction.
+func TestGetAPIKeyAndBearerAreDistinct(t *testing.T) {
+	apiKeyHeaders := http.Header{}
+	apiKeyHeaders.Set("Authorization", "ApiKey secret-key")
+	if _, err := GetBearerToken(apiKeyHeaders); err == nil {
+		t.Error("GetBearerToken() accepted an ApiKey header, want an error")
+	}
+
+	bearerHeaders := http.Header{}
+	bearerHeaders.Set("Authorization", "Bearer some.jwt.token")
+	if _, err := GetAPIKey(bearerHeaders); err == nil {
+		t.Error("GetAPIKey() accepted a Bearer header, want an error")
+	}
+}
