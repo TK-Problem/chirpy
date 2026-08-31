@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"slices"
 	"strings"
 	"time"
 
@@ -77,6 +78,14 @@ func (cfg *apiConfig) handlerChirpsRetrieve(w http.ResponseWriter, r *http.Reque
 	// mistake worth reporting rather than silently ignoring the filter.
 	authorIDString := r.URL.Query().Get("author_id")
 
+	// Both queries return created_at ascending, so desc is a reverse of the result
+	// rather than a second pair of queries.
+	sortDirection := r.URL.Query().Get("sort")
+	if sortDirection != "" && sortDirection != "asc" && sortDirection != "desc" {
+		respondWithError(w, http.StatusBadRequest, "Invalid sort direction", nil)
+		return
+	}
+
 	var dbChirps []database.Chirp
 	var err error
 	if authorIDString == "" {
@@ -103,6 +112,10 @@ func (cfg *apiConfig) handlerChirpsRetrieve(w http.ResponseWriter, r *http.Reque
 			Body:      dbChirp.Body,
 			UserID:    dbChirp.UserID,
 		})
+	}
+
+	if sortDirection == "desc" {
+		slices.Reverse(chirps)
 	}
 
 	respondWithJSON(w, http.StatusOK, chirps)
